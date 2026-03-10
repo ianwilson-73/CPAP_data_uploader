@@ -1,0 +1,178 @@
+diff -ruN orig/include/CpapWebServer.h work/include/CpapWebServer.h
+--- orig/include/CpapWebServer.h
++++ work/include/CpapWebServer.h
+@@
+ private:
+     WebServer* server;
++    bool running;
+     Config* config;
+     UploadStateManager* stateManager;
+
+@@
+     bool begin();
++    void stop();
++    bool isRunning() const;
+     void handleClient();
+
+
+diff -ruN orig/include/WiFiManager.h work/include/WiFiManager.h
+--- orig/include/WiFiManager.h
++++ work/include/WiFiManager.h
+@@
+     bool isConnected() const;
+     void disconnect();
++    void stopRadio();
+     String getIPAddress() const;
+
+
+diff -ruN orig/src/CpapWebServer.cpp work/src/CpapWebServer.cpp
+--- orig/src/CpapWebServer.cpp
++++ work/src/CpapWebServer.cpp
+@@
+ : server(nullptr),
++  running(false),
+   config(cfg),
+
+@@
+ CpapWebServer::~CpapWebServer() {
+-    if (server) {
+-        server->stop();
+-        delete server;
+-    }
++    stop();
+ }
+
+ bool CpapWebServer::begin() {
++    if (running && server) {
++        return true;
++    }
++
++    if (server) {
++        delete server;
++        server = nullptr;
++    }
+
+@@
+ server->begin();
++running = true;
+
+@@
++void CpapWebServer::stop() {
++    if (server) {
++        server->stop();
++        delete server;
++        server = nullptr;
++    }
++    running = false;
++}
++
++bool CpapWebServer::isRunning() const {
++    return running && server != nullptr;
++}
+
+ void CpapWebServer::handleClient() {
+-    if (server) {
++    if (server && running) {
+        server->handleClient();
+     }
+
+
+diff -ruN orig/src/WiFiManager.cpp work/src/WiFiManager.cpp
+--- orig/src/WiFiManager.cpp
++++ work/src/WiFiManager.cpp
+@@
+ void WiFiManager::disconnect() {
+     connected = false;
+ }
+
++void WiFiManager::stopRadio() {
++    if (mdnsStarted) {
++        MDNS.end();
++        mdnsStarted = false;
++    }
++
++    WiFi.disconnect(true, true);
++    delay(20);
++    esp_wifi_stop();
++    WiFi.mode(WIFI_OFF);
++    connected = false;
++}
+
+diff -ruN orig/src/main.cpp work/src/main.cpp
+--- orig/src/main.cpp
++++ work/src/main.cpp
+@@
+ unsigned long lastWifiReconnectAttempt = 0;
++bool g_wifiServicesActive = true;
+
+@@
++static bool shouldKeepWifiServicesActive() {
++    if (!uploader || !uploader->getScheduleManager()) {
++        return true;
++    }
++
++    ScheduleManager* sm = uploader->getScheduleManager();
++
++    if (!sm->isTimeSynced()) return true;
++    if (sm->isSmartMode()) return true;
++
++    return sm->isInUploadWindow();
++}
+
++static void stopWifiServices() {
++    if (!g_wifiServicesActive) return;
++
++#ifdef ENABLE_WEBSERVER
++    if (webServer && webServer->isRunning()) {
++        webServer->stop();
++    }
++#endif
++
++    wifiManager.stopRadio();
++    g_wifiServicesActive = false;
++}
+
++static bool startWifiServices() {
++    if (g_wifiServicesActive) return true;
++
++    if (!wifiManager.connectStation(config.getWifiSSID(), config.getWifiPassword())) {
++        return false;
++    }
++
++#ifdef ENABLE_WEBSERVER
++    if (webServer && !webServer->isRunning()) {
++        webServer->begin();
++    }
++#endif
++
++    g_wifiServicesActive = true;
++    return true;
++}
+
++static void updateScheduledWifiWindow() {
++    if (!uploader || uploadTaskRunning) return;
++
++    ScheduleManager* sm = uploader->getScheduleManager();
++
++    if (!sm || sm->isSmartMode() || !sm->isTimeSynced()) return;
++
++    bool shouldBeActive = sm->isInUploadWindow();
++
++    if (shouldBeActive && !g_wifiServicesActive) {
++        startWifiServices();
++    }
++    else if (!shouldBeActive && g_wifiServicesActive) {
++        stopWifiServices();
++    }
++}
+
+@@
++updateScheduledWifiWindow();
+
+@@
+-if (!wifiManager.isConnected() && !uploadTaskRunning) {
++if (g_wifiServicesActive && !wifiManager.isConnected() && !uploadTaskRunning) {
+
+@@
+-if (uploader) {
++if (uploader && g_wifiServicesActive) {
