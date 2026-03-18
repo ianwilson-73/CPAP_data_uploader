@@ -1,41 +1,77 @@
-# ESP32 CPAP Data Uploader
+# ESP32 CPAP AutoSync
 
 Automatically upload CPAP therapy data from your SD card to a network share or SleepHQ — **within minutes of taking your mask off.**
 
-**Supports:** ResMed Series 9, 10, and 11 · **Hardware:** [SD WIFI PRO](https://www.fysetc.com/products/fysetc-upgrade-sd-wifi-pro-with-card-reader-module-run-wireless-by-esp32-chip-web-server-reader-uploader-3d-printer-parts) (ESP32-based SD card adapter)
+* **Supports:** ResMed Series 9, 10, and 11
+* **Hardware:** [SD WIFI PRO](https://www.fysetc.com/products/fysetc-upgrade-sd-wifi-pro-with-card-reader-module-run-wireless-by-esp32-chip-web-server-reader-uploader-3d-printer-parts) — an ESP32-powered SD card that physically inserts into your CPAP's SD card slot like a regular memory card
 
 ---
 
 ## ⚠️ **IMPORTANT COMPATIBILITY NOTICE**
 
 ### **AirSense 11 Power Compatibility**
-Some **Singapore-made AirSense 11 machines** may not provide sufficient power to the SD card adapter:
+Some **Singapore-made AirSense 11 machines** may not provide sufficient power to the SD card adapter, which can cause spontaneous reboots or WiFi connection failures:
 
-- **Potentially affected models:** Platform `R390-447/1` with radio module starting with `AIR11M1`
-- **How to check:** Look at the label on the back of your AirSense 11 device
-- **Status:** Investigation ongoing - gathering more data
+- **Potentially affected models:**
+  - Platform: `R390-447/1`
+  - REF: `39517`
+  - Modem (WMOD / FCC ID): `AIR11M1G22`
+- **How to check:** Look at the label on the back/bottom of your AirSense 11 device. The platform code (e.g. R390-...) is usually near the "Made in XXX" text.
+- **Status:** If your machine matches these specific codes, you may experience power issues. Adjusting firmware power settings (`WIFI_TX_PWR`, `WIFI_PWR_SAVING`, `BROWNOUT_DETECT`, `ENABLE_1BIT_SD_MODE`) can help, but may still not be enough to fully resolve the hardware limitation on this specific variant (will likely require hardware modification).
+
+**👇 Click to expand:**
+
+<details>
+<summary><b>🔍 How to tell if your CPAP has power issues</b></summary>
+
+> **⚠️ Identifying Power Issues**
+>
+> If your CPAP cannot provide enough power to the SD card, the ESP32 chip will reset itself. You might notice:
+> - The device disappears from WiFi frequently
+> - Uploads fail midway or never start
+> - The web interface is unreliable
+>
+> You can confirm this is happening by looking at your logs:
+> 1. If `PERSISTENT_LOGS=true` is set, check the downloaded logs from the web interface.
+> 2. If the device cannot even stay online long enough to broadcast WiFi, pull the SD card and look for a file called `uploader_error.txt`.
+>
+> Look for this specific warning:
+> ```text
+> [INFO] Reset reason: Brown-out reset (low voltage)
+> [ERROR] WARNING: System reset due to brown-out (insufficient power supply), this could be caused by:
+> [ERROR]  - the CPAP was disconnected from the power supply
+> [ERROR]  - the card was removed
+> [ERROR]  - the CPAP machine cannot provide enough power
+> ```
+
+</details>
 
 ### **Confirmed Working**
 - ✅ **All AirSense 10 models**
 - ✅ **Australian-made AirSense 11 models**
+- ✅ **Some Singapore-made AirSense 11 models**
+  - For example, machines with REF `39523` with modem `AIR11M1U` have been stable since v1.0i-beta1
 
-> **v0.11.0+:** Firmware now includes aggressive power optimization (reduced TX power, 802.11b disabled, Bluetooth disabled, CPU throttled, WiFi modem-sleep enabled) specifically to improve AirSense 11 compatibility.
+> **Versions between v0.11.0 and v1.0i:** Added progressively more aggressive power optimizations (reduced TX power, 802.11b disabled, Bluetooth disabled, CPU throttled, WiFi modem-sleep enabled) specifically to improve AirSense 11 compatibility, which allowed some previously incompatible models to work.
 
-**If you have a Singapore-made AirSense 11 with AIR11M1 radio module**, please check your device label and report your experience to help us gather more compatibility data.
+**If you have a Singapore-made AirSense 11 with REF** `39517` **and modem** `AIR11M1G22`, **please check your device label and report your experience to help us gather more compatibility data.**
 
 ---
 
-![CPAP Data Uploader Web Interface](docs/screenshots/web-interface.png)
+![CPAP AutoSync Web Interface](docs/screenshots/web-interface.png)
 
 ---
 
 ## 🚀 Quick Start — 4 Steps
 
 ### 1. Get the hardware
-[SD WIFI PRO](https://www.fysetc.com/products/fysetc-upgrade-sd-wifi-pro-with-card-reader-module-run-wireless-by-esp32-chip-web-server-reader-uploader-3d-printer-parts) — an ESP32-based SD card adapter that replaces your CPAP's SD card slot.
+[SD WIFI PRO](https://www.fysetc.com/products/fysetc-upgrade-sd-wifi-pro-with-card-reader-module-run-wireless-by-esp32-chip-web-server-reader-uploader-3d-printer-parts) — an ESP32-powered SD card that physically inserts into your CPAP's SD card slot like a regular memory card.
 
 ### 2. Flash the firmware
-👉 **[Download Latest Release](../../releases)** — includes firmware binaries and upload scripts for Windows, Mac, and Linux. Follow the included instructions.
+👉 **[Download Latest Release](../../releases)** — the preferred first-time flashing method is the browser-based web flasher in Chrome, Edge, or Opera. The release package also includes fallback scripts for Windows, Mac, and Linux if needed.
+
+Open the release ZIP and follow the **Firmware Upload** steps in the included guide:
+**[Full Setup Guide](release/README.md)**
 
 ### 3. Create `config.txt` on the SD card
 Just WiFi credentials and upload destination — **6 to 10 lines total**.
@@ -86,7 +122,7 @@ CLOUD_CLIENT_SECRET = your-client-secret
 
 That's it. The device connects to WiFi, waits for your therapy session to end, and uploads automatically.
 
-Open **[http://cpap.local](http://cpap.local)** in your browser to see live upload status, view logs, and manage settings.
+Open **[http://cpap.local](http://cpap.local)** in your browser to see live upload status, view logs, and manage settings. *(Note: `cpap.local` only resolves for the first 60 seconds after boot to save power — accessing it within this window redirects you to the device's IP address.)*
 
 > **From here on, you can edit your config directly in the browser** — Config tab → Edit. No need to pull the SD card again.
 
@@ -94,15 +130,17 @@ Open **[http://cpap.local](http://cpap.local)** in your browser to see live uplo
 
 ## 🚨 Seeing an SD Card Error on your CPAP?
 
-> Add these lines to `config.txt` and the errors will stop:
+SD card errors typically happen for two reasons:
+1. **Power Limits:** The CPAP machine cannot provide enough peak current to the SD slot during WiFi uploads. (Ensure you are running the latest firmware, which includes aggressive power-saving features).
+2. **Bad Timing (Collisions):** In **smart** mode, uploads begin shortly after therapy ends. If you briefly pause therapy and then resume it while an upload is actively running, the CPAP and the WiFi SD card will clash over SD access.
+
+If bad timing is causing your errors, you can avoid it entirely by switching to **scheduled** mode in `config.txt`, setting a window during your waking hours:
 
 ```ini
 UPLOAD_MODE = scheduled
 UPLOAD_START_HOUR = 9
-UPLOAD_END_HOUR = 23
+UPLOAD_END_HOUR = 21
 ```
-
-The default **smart** mode detects SD bus activity to know when it's safe to take the card. On some CPAP models this detection is unreliable — **scheduled mode avoids it entirely** by only uploading during a window you set (e.g. while you're awake and not on therapy).
 
 See the [Full Setup Guide](release/README.md#️-sd-card-errors--use-scheduled-mode) for details.
 
@@ -112,7 +150,7 @@ See the [Full Setup Guide](release/README.md#️-sd-card-errors--use-scheduled-m
 
 - **Automatic uploads after every therapy session** — smart mode detects when your CPAP finishes and starts uploading within minutes
 - **Uploads to Windows shares, NAS, or SleepHQ** — or both at the same time
-- **Web dashboard at `http://cpap.local`** — live progress, logs, config editor, OTA updates
+- **Web dashboard at `http://cpap.local`** — live progress, logs, config editor, OTA updates *(available for first 60 seconds after boot, then use IP address)*
 - **Edit config from the browser** — no SD card pulls after initial setup
 - **Never uploads the same file twice** — tracks what's been sent, even across reboots
 - **Persistent log storage** — enable `PERSISTENT_LOGS=true` to flush logs to internal flash every 30 seconds; download past sessions from the browser. Emergency logs are always saved to SD card on boot failures and to internal flash before every reboot.
@@ -154,6 +192,12 @@ This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**
 This project uses libsmb2 (LGPL-2.1), which is compatible with GPL-3.0.
 
 See [LICENSE](LICENSE) file for full terms.
+
+## Acknowledgements
+
+This project was originally inspired by and started as a fork of the excellent [CPAP Data Uploader](https://github.com/amanuense/CPAP_data_uploader) project by Oscar Arias (amanuense). The initial goal of the fork was simply to add SleepHQ support, but it quickly grew into a fully distinct project with its own architecture, web dashboard, smart power management, and upload engine. We are deeply grateful to Oscar for proving the viability of the FYSETC SD WIFI PRO hardware and for creating the foundation that made this project possible.
+
+---
 
 ## Legal & Trademarks
 
